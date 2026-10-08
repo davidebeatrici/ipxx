@@ -36,6 +36,18 @@ public:
 
 	Address() = default;
 
+	static Address anyV4() {
+		Address address;
+		address.setV4(V4{}.data());
+		return address;
+	}
+
+	static Address anyV6() {
+		Address address;
+		address.m_null = false;
+		return address;
+	}
+
 	explicit Address(std::span< const std::uint8_t > bytes, std::uint32_t scope = 0) {
 		if (bytes.size() == v4Size) {
 			setV4(bytes.data());

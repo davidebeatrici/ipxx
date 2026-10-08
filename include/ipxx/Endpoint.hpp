@@ -14,6 +14,9 @@ struct Endpoint {
 	std::uint16_t port = 0;
 
 	Endpoint() = default;
+
+	static Endpoint anyV4() { return Endpoint(Address::anyV4()); }
+	static Endpoint anyV6() { return Endpoint(Address::anyV6()); }
 	explicit Endpoint(const Address &address) : address(address) {}
 	explicit Endpoint(std::uint16_t port) : port(port) {}
 	Endpoint(const Address &address, std::uint16_t port) : address(address), port(port) {}
