@@ -139,6 +139,21 @@ public:
 		return isV6() && std::all_of(m_bytes.begin(), m_bytes.end() - 1, [](std::uint8_t b) { return b == 0; }) && m_bytes[15] == 1;
 	}
 
+	bool isLinkLocal() const {
+		if (isV4()) {
+			return m_bytes[12] == 169 && m_bytes[13] == 254;
+		}
+		return isV6() && m_bytes[0] == 0xFE && (m_bytes[1] & 0xC0) == 0x80;
+	}
+
+	// 10/8, 172.16/12, 192.168/16, and fc00::/7.
+	bool isPrivate() const {
+		if (isV4()) {
+			return m_bytes[12] == 10 || (m_bytes[12] == 172 && (m_bytes[13] & 0xF0) == 16) || (m_bytes[12] == 192 && m_bytes[13] == 168);
+		}
+		return isV6() && (m_bytes[0] & 0xFE) == 0xFC;
+	}
+
 	std::uint32_t scope() const { return m_scope; }
 
 	// The 16-byte form. A v4 address occupies the last four bytes, behind the mapped prefix.
