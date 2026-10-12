@@ -26,6 +26,20 @@
 namespace ipxx {
 class Address {
 public:
+	// Scope of a multicast address. None unless isMulticast().
+	// An unassigned IPv6 scope nibble stays Unassigned so it is not reported as None.
+	enum class MulticastScope : std::uint8_t {
+		None,
+		Interface,
+		Link,
+		Realm,
+		Admin,
+		Site,
+		Organization,
+		Global,
+		Unassigned
+	};
+
 	static constexpr std::size_t v4Size = 4;
 	static constexpr std::size_t v6Size = 16;
 
@@ -139,6 +153,13 @@ public:
 		return isV6() && std::all_of(m_bytes.begin(), m_bytes.end() - 1, [](std::uint8_t b) { return b == 0; }) && m_bytes[15] == 1;
 	}
 
+	bool isMulticast() const {
+		if (isV4()) {
+			return (m_bytes[12] & 0xF0) == 224;
+		}
+		return isV6() && m_bytes[0] == 0xFF;
+	}
+
 	bool isLinkLocal() const {
 		if (isV4()) {
 			return m_bytes[12] == 169 && m_bytes[13] == 254;
@@ -158,6 +179,39 @@ public:
 
 	// 100.64/10, carrier-grade NAT. Not private.
 	bool isShared() const { return isV4() && m_bytes[12] == 100 && (m_bytes[13] & 0xC0) == 64; }
+
+	MulticastScope multicastScope() const {
+		if (!isMulticast()) {
+			return MulticastScope::None;
+		}
+		if (isV4()) {
+			if (m_bytes[12] == 224 && m_bytes[13] == 0 && m_bytes[14] == 0) {
+				return MulticastScope::Link;
+			}
+			if (m_bytes[12] == 239) {
+				return MulticastScope::Admin;
+			}
+			return MulticastScope::Global;
+		}
+		switch (m_bytes[1] & 0x0F) {
+		case 1:
+			return MulticastScope::Interface;
+		case 2:
+			return MulticastScope::Link;
+		case 3:
+			return MulticastScope::Realm;
+		case 4:
+			return MulticastScope::Admin;
+		case 5:
+			return MulticastScope::Site;
+		case 8:
+			return MulticastScope::Organization;
+		case 0xE:
+			return MulticastScope::Global;
+		default:
+			return MulticastScope::Unassigned;
+		}
+	}
 
 	std::uint32_t scope() const { return m_scope; }
 
