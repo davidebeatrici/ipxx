@@ -146,6 +146,8 @@ public:
 		return isV6() && m_bytes[0] == 0xFE && (m_bytes[1] & 0xC0) == 0x80;
 	}
 
+	bool isBroadcast() const { return isV4() && std::all_of(m_bytes.begin() + 12, m_bytes.end(), [](std::uint8_t b) { return b == 0xFF; }); }
+
 	// 10/8, 172.16/12, 192.168/16, and fc00::/7.
 	bool isPrivate() const {
 		if (isV4()) {
@@ -153,6 +155,9 @@ public:
 		}
 		return isV6() && (m_bytes[0] & 0xFE) == 0xFC;
 	}
+
+	// 100.64/10, carrier-grade NAT. Not private.
+	bool isShared() const { return isV4() && m_bytes[12] == 100 && (m_bytes[13] & 0xC0) == 64; }
 
 	std::uint32_t scope() const { return m_scope; }
 
