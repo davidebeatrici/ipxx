@@ -48,6 +48,20 @@ public:
 		return address;
 	}
 
+	static Address localhostV4() {
+		Address address;
+		constexpr std::uint8_t bytes[v4Size] = { 127, 0, 0, 1 };
+		address.setV4(bytes);
+		return address;
+	}
+
+	static Address localhostV6() {
+		Address address;
+		address.m_bytes[15] = 1;
+		address.m_null = false;
+		return address;
+	}
+
 	explicit Address(std::span< const std::uint8_t > bytes, std::uint32_t scope = 0) {
 		if (bytes.size() == v4Size) {
 			setV4(bytes.data());
@@ -116,6 +130,13 @@ public:
 			return std::all_of(m_bytes.begin() + 12, m_bytes.end(), [](std::uint8_t b) { return b == 0; });
 		}
 		return std::all_of(m_bytes.begin(), m_bytes.end(), [](std::uint8_t b) { return b == 0; });
+	}
+
+	bool isLoopback() const {
+		if (isV4()) {
+			return m_bytes[12] == 127;
+		}
+		return isV6() && std::all_of(m_bytes.begin(), m_bytes.end() - 1, [](std::uint8_t b) { return b == 0; }) && m_bytes[15] == 1;
 	}
 
 	std::uint32_t scope() const { return m_scope; }
