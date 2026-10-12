@@ -180,6 +180,22 @@ public:
 	// 100.64/10, carrier-grade NAT. Not private.
 	bool isShared() const { return isV4() && m_bytes[12] == 100 && (m_bytes[13] & 0xC0) == 64; }
 
+	// 192.0.2/24, 198.51.100/24, 203.0.113/24, and 2001:db8::/32.
+	bool isDocumentation() const {
+		if (isV4()) {
+			return (m_bytes[12] == 192 && m_bytes[13] == 0 && m_bytes[14] == 2) || (m_bytes[12] == 198 && m_bytes[13] == 51 && m_bytes[14] == 100)
+				   || (m_bytes[12] == 203 && m_bytes[13] == 0 && m_bytes[14] == 113);
+		}
+		return isV6() && m_bytes[0] == 0x20 && m_bytes[1] == 0x01 && m_bytes[2] == 0x0D && m_bytes[3] == 0xB8;
+	}
+
+	// Complement of the predicates above, not a claim that the address is publicly routable.
+	// Benchmarking, 6to4 and Teredo still report global.
+	bool isGlobal() const {
+		return !isNull() && !isWildcard() && !isLoopback() && !isMulticast() && !isLinkLocal() && !isBroadcast() && !isPrivate() && !isShared()
+			   && !isDocumentation();
+	}
+
 	MulticastScope multicastScope() const {
 		if (!isMulticast()) {
 			return MulticastScope::None;
