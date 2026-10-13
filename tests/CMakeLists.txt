@@ -3,6 +3,7 @@
 list(APPEND TESTS
 	"Address"
 	"Endpoint"
+	"Subnet"
 )
 
 foreach(TARGET IN LISTS TESTS)
