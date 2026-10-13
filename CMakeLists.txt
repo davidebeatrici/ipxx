@@ -8,6 +8,8 @@ project(ipxx
 	LANGUAGES "CXX"
 )
 
+option(IPXX_BUILD_TESTS "Build tests" ON)
+
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -55,3 +57,8 @@ install(FILES
 	"${PROJECT_BINARY_DIR}/ipxx-config-version.cmake"
 	DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/ipxx"
 )
+
+if(IPXX_BUILD_TESTS)
+	include(CTest)
+	add_subdirectory(tests)
+endif()
