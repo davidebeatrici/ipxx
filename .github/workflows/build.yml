@@ -9,22 +9,62 @@ on:
 
 jobs:
   build:
-    name: ${{ matrix.os }}
+    name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            name: ubuntu-gcc
+            cc: gcc
+            cxx: g++
+          - os: ubuntu-latest
+            name: ubuntu-clang
+            cc: clang
+            cxx: clang++
+          - os: macos-latest
+            name: macos
+          - os: windows-latest
+            name: windows-mingw
+            cc: gcc
+            cxx: g++
+          - os: windows-latest
+            name: windows-msvc
+            cxx: cl
+            msvc: true
+          - os: windows-latest
+            name: windows-clang-cl
+            cxx: clang-cl
+            msvc: true
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Clang
+        if: matrix.cxx == 'clang++'
+        run: sudo apt-get update && sudo apt-get install -y clang
 
       - name: Install Ninja
         if: runner.os == 'macOS'
         run: brew install ninja
 
+      # Puts cl and clang-cl on PATH. Without it, Ninja finds MinGW g++ first.
+      - name: MSVC environment
+        if: matrix.msvc
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DIPXX_BUILD_TESTS=ON
+        shell: bash
+        run: |
+          args=(-S . -B build -G Ninja -DIPXX_BUILD_TESTS=ON)
+          if [ -n "${{ matrix.cxx }}" ]; then
+            args+=("-DCMAKE_CXX_COMPILER=${{ matrix.cxx }}")
+          fi
+          if [ -n "${{ matrix.cc }}" ]; then
+            args+=("-DCMAKE_C_COMPILER=${{ matrix.cc }}")
+          fi
+          cmake "${args[@]}"
 
       - name: Build
         run: cmake --build build
