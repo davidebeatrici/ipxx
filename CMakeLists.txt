@@ -23,6 +23,10 @@ target_include_directories(ipxx
 		"$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
 
+if(WIN32)
+	target_link_libraries(ipxx INTERFACE ws2_32)
+endif()
+
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
