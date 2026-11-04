@@ -11,20 +11,37 @@
 #include <string_view>
 
 namespace ipxx {
-// A network: an Address plus the prefix that makes it one.
-// The prefix the caller writes is the address's own width, 0 to 32 for v4 and
-// 0 to 128 for v6. It is stored on the 16-byte form match() already takes, so
-// a v4 /24 is 120 and a v6 /64 is 64. The getter undoes that translation.
+/**
+ * A network, not an endpoint: an Address plus the prefix that makes it one.
+ *
+ * The prefix the caller writes is the address's own width, 0 to 32 for v4 and
+ * 0 to 128 for v6. It is stored on the 16-byte form match() already takes, so
+ * a v4 /24 is 120 and a v6 /64 is 64. prefix() undoes that translation.
+ */
 class Subnet {
 public:
+	/** A null subnet. */
 	Subnet() = default;
 
-	// An illegal pair leaves the subnet null, the same way a failed parse does.
+	/**
+	 * An address and a prefix. An illegal pair leaves the subnet null, the
+	 * same way a failed parse does.
+	 */
 	Subnet(const Address &address, std::uint8_t prefix) { set(address, prefix); }
 
-	// A failed parse leaves the subnet null, the same way Address does.
+	/**
+	 * Parses `address/prefix`. A failed parse leaves the subnet null, the same
+	 * way Address does. Brackets around a v6 address are accepted.
+	 */
 	explicit Subnet(std::string_view text) { setText(text); }
 
+	/**
+	 * Sets the address and the prefix together.
+	 *
+	 * @param address The network address. A null address is rejected.
+	 * @param prefix The caller width: 0 to 32 for v4, 0 to 128 for v6.
+	 * @return False, leaving the subnet unchanged, when the pair is illegal.
+	 */
 	bool set(const Address &address, std::uint8_t prefix) {
 		if (!prefixFits(address, prefix)) {
 			return false;
@@ -34,9 +51,18 @@ public:
 		return true;
 	}
 
-	// Keeps the prefix the caller sees, and rewrites the stored form for the new family.
-	// 192.0.2.0/24 stores 120; switching the address to v6 stores 24, so prefix() still returns 24.
-	// A v6 /64 cannot move to v4, so that call fails and the subnet is left as it was.
+	/**
+	 * Replaces the address and keeps the prefix the caller sees.
+	 *
+	 * The stored form is rewritten for the new family. 192.0.2.0/24 stores 120;
+	 * switching the address to v6 stores 24, so prefix() still returns 24. A
+	 * v6 /64 cannot move to v4, so that call fails and the subnet is left as
+	 * it was. On a null subnet the address is stored and the subnet stays null,
+	 * so a later setPrefix() can apply.
+	 *
+	 * @return False, leaving the subnet unchanged, on a null address or a
+	 * prefix the new family cannot hold.
+	 */
 	bool setAddress(const Address &address) {
 		if (address.isNull()) {
 			return false;
@@ -54,8 +80,14 @@ public:
 		return true;
 	}
 
-	// Fails on a null address or a prefix the current family cannot hold.
-	// Either failure leaves the subnet unchanged.
+	/**
+	 * Replaces the prefix.
+	 *
+	 * Fails on a null address or a prefix the current family cannot hold.
+	 * Either failure leaves the subnet unchanged.
+	 *
+	 * @param prefix The caller width: 0 to 32 for v4, 0 to 128 for v6.
+	 */
 	bool setPrefix(std::uint8_t prefix) {
 		if (!prefixFits(m_address, prefix)) {
 			return false;
@@ -64,6 +96,10 @@ public:
 		return true;
 	}
 
+	/**
+	 * Parses `address/prefix` and sets both. A missing slash, an empty side,
+	 * or a prefix above 128 fails and leaves the subnet unchanged.
+	 */
 	bool setText(std::string_view text) {
 		const auto slash = text.rfind('/');
 		if (slash == std::string_view::npos || slash == 0 || slash + 1 >= text.size()) {
@@ -78,11 +114,16 @@ public:
 		return set(Address(text.substr(0, slash)), static_cast< std::uint8_t >(parsed));
 	}
 
+	/** True when no legal address and prefix have been set. */
 	bool isNull() const { return m_null; }
 
+	/** The network address. A null Address when the subnet is null. */
 	Address address() const { return m_null ? Address() : m_address; }
 
-	// The width the caller wrote. A v4 /24 reads back as 24; the 96 never leaks.
+	/**
+	 * The width the caller wrote. A v4 /24 reads back as 24; the 96 never
+	 * leaks. Zero when null.
+	 */
 	std::uint8_t prefix() const {
 		if (m_null) {
 			return 0;
@@ -93,7 +134,10 @@ public:
 		return m_prefix;
 	}
 
-	// match(), with the subnet owning the prefix. 192.0.2.0/24 contains 192.0.2.10.
+	/**
+	 * True when @p other is inside this network. match(), with the subnet
+	 * owning the prefix. 192.0.2.0/24 contains 192.0.2.10. False when null.
+	 */
 	bool contains(const Address &other) const {
 		if (m_null) {
 			return false;
@@ -101,8 +145,13 @@ public:
 		return m_address.match(other, m_prefix);
 	}
 
-	// True when other is this network or a more specific one inside it.
-	// 192.0.2.0/24 contains 192.0.2.0/25. It does not contain 192.0.2.0/16.
+	/**
+	 * True when @p other is this network or a more specific one inside it.
+	 *
+	 * 192.0.2.0/24 contains 192.0.2.0/25 and contains itself. It does not
+	 * contain 192.0.2.0/16. Host bits past the prefix do not matter. False
+	 * when either subnet is null.
+	 */
 	bool contains(const Subnet &other) const {
 		if (m_null || other.m_null || other.m_prefix < m_prefix) {
 			return false;
@@ -110,6 +159,10 @@ public:
 		return m_address.match(other.m_address, m_prefix);
 	}
 
+	/**
+	 * The textual form. Empty when null. A real v6 address is bracketed, so
+	 * the result is `[2001:db8::]/32`. A v4 address is not: `192.0.2.0/24`.
+	 */
 	std::string text() const {
 		if (m_null) {
 			return {};
@@ -120,6 +173,9 @@ public:
 		return out;
 	}
 
+	/**
+	 * True when both are null, or both hold the same address and stored prefix.
+	 */
 	friend bool operator==(const Subnet &lhs, const Subnet &rhs) {
 		if (lhs.m_null != rhs.m_null) {
 			return false;
@@ -130,6 +186,10 @@ public:
 		return lhs.m_address == rhs.m_address && lhs.m_prefix == rhs.m_prefix;
 	}
 
+	/**
+	 * Orders by null, then address, then stored prefix. A null subnet sorts
+	 * first.
+	 */
 	friend std::strong_ordering operator<=>(const Subnet &lhs, const Subnet &rhs) {
 		if (auto cmp = rhs.m_null <=> lhs.m_null; cmp != 0) {
 			return cmp;
@@ -146,6 +206,7 @@ public:
 private:
 	static constexpr std::uint8_t v4MappedBits = 96;
 
+	/** True when the prefix is legal for the address's family. */
 	static bool prefixFits(const Address &address, std::uint8_t prefix) {
 		if (address.isNull()) {
 			return false;
@@ -156,6 +217,7 @@ private:
 		return address.isV6() && prefix <= 128;
 	}
 
+	/** Writes the 16-byte prefix and clears the null flag. */
 	void store(const Address &address, std::uint8_t prefix) {
 		m_prefix = address.isV4() ? static_cast< std::uint8_t >(prefix + v4MappedBits) : prefix;
 		m_null = false;
@@ -167,6 +229,7 @@ private:
 };
 } // namespace ipxx
 
+/** Hashes the address and the caller prefix. Equal subnets hash equal. */
 template <> struct std::hash< ipxx::Subnet > {
 	std::size_t operator()(const ipxx::Subnet &subnet) const noexcept {
 		if (subnet.isNull()) {

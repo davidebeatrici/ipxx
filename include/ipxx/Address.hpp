@@ -24,44 +24,58 @@
 #endif
 
 namespace ipxx {
+/**
+ * An IP address.
+ *
+ * An IPv4 address is stored as an IPv4-mapped IPv6 address, `::ffff:0:0/96`.
+ * A mapped address is an IPv4 address: isV4() is true, text() prints dotted
+ * decimal, and it compares equal to the same address constructed from four
+ * bytes. That is the form a dual-stack socket accepts.
+ */
 class Address {
 public:
-	// Scope of a multicast address. None unless isMulticast().
-	// An unassigned IPv6 scope nibble stays Unassigned so it is not reported as None.
+	/**
+	 * Scope of a multicast address. None unless isMulticast(). An unassigned
+	 * IPv6 scope nibble stays Unassigned so it is not reported as None.
+	 */
 	enum class MulticastScope : std::uint8_t {
-		None,
-		Interface,
-		Link,
-		Realm,
-		Admin,
-		Site,
-		Organization,
-		Global,
-		Unassigned
+		None,         ///< Not a multicast address.
+		Interface,    ///< Interface-local, IPv6 scope 1.
+		Link,         ///< Link-local. IPv4 224.0.0.0/24, or IPv6 scope 2.
+		Realm,        ///< Realm-local, IPv6 scope 3.
+		Admin,        ///< Admin-local. IPv4 239.0.0.0/8, or IPv6 scope 4.
+		Site,         ///< Site-local, IPv6 scope 5.
+		Organization, ///< Organization-local, IPv6 scope 8.
+		Global,       ///< Global. Other IPv4 multicast, or IPv6 scope 14.
+		Unassigned    ///< An IPv6 scope nibble with no assigned meaning.
 	};
 
-	static constexpr std::size_t v4Size = 4;
-	static constexpr std::size_t v6Size = 16;
+	static constexpr std::size_t v4Size = 4;  ///< Size of an IPv4 address, in bytes.
+	static constexpr std::size_t v6Size = 16; ///< Size of an IPv6 address, in bytes.
 
-	using V6        = std::array< std::uint8_t, v6Size >;
-	using V4        = std::array< std::uint8_t, v4Size >;
-	using View      = std::span< std::uint8_t >;
-	using ViewConst = std::span< const std::uint8_t >;
+	using V6        = std::array< std::uint8_t, v6Size >; ///< The 16-byte form.
+	using V4        = std::array< std::uint8_t, v4Size >; ///< The four address bytes.
+	using View      = std::span< std::uint8_t >;          ///< A mutable view of address bytes.
+	using ViewConst = std::span< const std::uint8_t >;    ///< A const view of address bytes.
 
+	/** A null address. isNull() and isWildcard() are true. */
 	Address() = default;
 
+	/** The IPv4 wildcard, 0.0.0.0. */
 	static Address anyV4() {
 		Address address;
 		address.setV4(V4{}.data());
 		return address;
 	}
 
+	/** The IPv6 wildcard, `::`. */
 	static Address anyV6() {
 		Address address;
 		address.m_null = false;
 		return address;
 	}
 
+	/** 127.0.0.1. */
 	static Address localhostV4() {
 		Address address;
 		constexpr std::uint8_t bytes[v4Size] = { 127, 0, 0, 1 };
@@ -69,6 +83,7 @@ public:
 		return address;
 	}
 
+	/** `::1`. */
 	static Address localhostV6() {
 		Address address;
 		address.m_bytes[15] = 1;
@@ -76,6 +91,15 @@ public:
 		return address;
 	}
 
+	/**
+	 * Constructs from raw bytes.
+	 *
+	 * Four bytes are stored as a mapped IPv4 address. Sixteen bytes are stored
+	 * as written. Any other length leaves the address null.
+	 *
+	 * @param bytes The address bytes.
+	 * @param scope The scope id. Kept only for a real IPv6 address.
+	 */
 	explicit Address(std::span< const std::uint8_t > bytes, std::uint32_t scope = 0) {
 		if (bytes.size() == v4Size) {
 			setV4(bytes.data());
@@ -87,6 +111,14 @@ public:
 		}
 	}
 
+	/**
+	 * Parses text. A failed parse leaves the address null.
+	 *
+	 * Surrounding brackets are stripped. A `%` suffix is a numeric scope id.
+	 * An IPv4-mapped address is stored as IPv4.
+	 *
+	 * @param text Dotted decimal, or an IPv6 address.
+	 */
 	explicit Address(std::string_view text) {
 		if (text.size() >= 2 && text.front() == '[' && text.back() == ']') {
 			text.remove_prefix(1);
@@ -108,10 +140,15 @@ public:
 		}
 	}
 
+	/** Constructs from an IPv4 socket address. The port is ignored. */
 	explicit Address(const sockaddr_in &sa) {
 		setV4(reinterpret_cast< const std::uint8_t * >(&sa.sin_addr));
 	}
 
+	/**
+	 * Constructs from an IPv6 socket address. A mapped address is stored as
+	 * IPv4, and its scope id is dropped. The port is ignored.
+	 */
 	explicit Address(const sockaddr_in6 &sa) {
 		std::memcpy(m_bytes.data(), &sa.sin6_addr, v6Size);
 		m_null = false;
@@ -120,6 +157,10 @@ public:
 		}
 	}
 
+	/**
+	 * Constructs from a socket address. `AF_INET` and `AF_INET6` are read.
+	 * Any other family leaves the address null.
+	 */
 	explicit Address(const sockaddr_storage &sa) {
 		if (sa.ss_family == AF_INET) {
 			const auto &in = reinterpret_cast< const sockaddr_in & >(sa);
@@ -132,10 +173,15 @@ public:
 		}
 	}
 
-	// True for a native v4 input and for ::ffff:0:0/96.
+	/** True for a native v4 input and for `::ffff:0:0/96`. */
 	bool isV4() const { return !m_null && isMappedPrefix(); }
+	/** True for a real IPv6 address. A mapped address is not v6. */
 	bool isV6() const { return !m_null && !isMappedPrefix(); }
+	/** True when no address has been set, or after reset(). */
 	bool isNull() const { return m_null; }
+	/**
+	 * True for a null address, for 0.0.0.0, and for `::`.
+	 */
 	bool isWildcard() const {
 		if (m_null) {
 			return true;
@@ -146,6 +192,10 @@ public:
 		return std::all_of(m_bytes.begin(), m_bytes.end(), [](std::uint8_t b) { return b == 0; });
 	}
 
+	/**
+	 * True for 127.0.0.0/8 and for `::1`. A mapped address is classified as the
+	 * IPv4 address it contains.
+	 */
 	bool isLoopback() const {
 		if (isV4()) {
 			return m_bytes[12] == 127;
@@ -153,6 +203,7 @@ public:
 		return isV6() && std::all_of(m_bytes.begin(), m_bytes.end() - 1, [](std::uint8_t b) { return b == 0; }) && m_bytes[15] == 1;
 	}
 
+	/** True for 224.0.0.0/4 and for `ff00::/8`. */
 	bool isMulticast() const {
 		if (isV4()) {
 			return (m_bytes[12] & 0xF0) == 224;
@@ -160,6 +211,10 @@ public:
 		return isV6() && m_bytes[0] == 0xFF;
 	}
 
+	/**
+	 * Unicast link-local only: 169.254.0.0/16, or `fe80::/10`.
+	 * Multicast scope is multicastScope(), not this.
+	 */
 	bool isLinkLocal() const {
 		if (isV4()) {
 			return m_bytes[12] == 169 && m_bytes[13] == 254;
@@ -167,9 +222,13 @@ public:
 		return isV6() && m_bytes[0] == 0xFE && (m_bytes[1] & 0xC0) == 0x80;
 	}
 
+	/**
+	 * The limited broadcast, 255.255.255.255. A subnet-directed broadcast needs
+	 * the subnet.
+	 */
 	bool isBroadcast() const { return isV4() && std::all_of(m_bytes.begin() + 12, m_bytes.end(), [](std::uint8_t b) { return b == 0xFF; }); }
 
-	// 10/8, 172.16/12, 192.168/16, and fc00::/7.
+	/** 10/8, 172.16/12, 192.168/16, and `fc00::/7`. */
 	bool isPrivate() const {
 		if (isV4()) {
 			return m_bytes[12] == 10 || (m_bytes[12] == 172 && (m_bytes[13] & 0xF0) == 16) || (m_bytes[12] == 192 && m_bytes[13] == 168);
@@ -177,10 +236,10 @@ public:
 		return isV6() && (m_bytes[0] & 0xFE) == 0xFC;
 	}
 
-	// 100.64/10, carrier-grade NAT. Not private.
+	/** 100.64/10, carrier-grade NAT. Not private. */
 	bool isShared() const { return isV4() && m_bytes[12] == 100 && (m_bytes[13] & 0xC0) == 64; }
 
-	// 192.0.2/24, 198.51.100/24, 203.0.113/24, and 2001:db8::/32.
+	/** 192.0.2/24, 198.51.100/24, 203.0.113/24, and `2001:db8::/32`. */
 	bool isDocumentation() const {
 		if (isV4()) {
 			return (m_bytes[12] == 192 && m_bytes[13] == 0 && m_bytes[14] == 2) || (m_bytes[12] == 198 && m_bytes[13] == 51 && m_bytes[14] == 100)
@@ -189,13 +248,19 @@ public:
 		return isV6() && m_bytes[0] == 0x20 && m_bytes[1] == 0x01 && m_bytes[2] == 0x0D && m_bytes[3] == 0xB8;
 	}
 
-	// Complement of the predicates above, not a claim that the address is publicly routable.
-	// Benchmarking, 6to4 and Teredo still report global.
+	/**
+	 * Complement of the predicates above, not a claim that the address is
+	 * publicly routable. Benchmarking, 6to4 and Teredo still report global.
+	 */
 	bool isGlobal() const {
 		return !isNull() && !isWildcard() && !isLoopback() && !isMulticast() && !isLinkLocal() && !isBroadcast() && !isPrivate() && !isShared()
 			   && !isDocumentation();
 	}
 
+	/**
+	 * The multicast scope. None when this is not a multicast address.
+	 * An IPv4 224.0.0.0/24 is Link, 239.0.0.0/8 is Admin, and the rest is Global.
+	 */
 	MulticastScope multicastScope() const {
 		if (!isMulticast()) {
 			return MulticastScope::None;
@@ -229,16 +294,29 @@ public:
 		}
 	}
 
+	/** The scope id. Zero unless a real IPv6 address carried one. */
 	std::uint32_t scope() const { return m_scope; }
 
-	// The 16-byte form. A v4 address occupies the last four bytes, behind the mapped prefix.
+	/**
+	 * The 16-byte form. A v4 address occupies the last four bytes, behind the
+	 * mapped prefix. Empty when null.
+	 */
 	ViewConst v6() const { return m_null ? ViewConst{} : ViewConst(m_bytes); }
+	/** @copydoc v6() const */
 	View v6() { return m_null ? View{} : View(m_bytes); }
 
-	// The four address bytes. Empty unless this is a v4 or v4-mapped address, so the prefix cannot be edited from here.
+	/**
+	 * The four address bytes. Empty unless this is a v4 or v4-mapped address,
+	 * so the mapped prefix cannot be edited from here.
+	 */
 	ViewConst v4() const { return isV4() ? ViewConst(m_bytes.data() + 12, v4Size) : ViewConst{}; }
+	/** @copydoc v4() const */
 	View v4() { return isV4() ? View(m_bytes.data() + 12, v4Size) : View{}; }
 
+	/**
+	 * The four address bytes copied into an integer, as stored. Zero unless
+	 * this is a v4 or v4-mapped address. The byte order is the machine's.
+	 */
 	std::uint32_t toIPv4() const {
 		std::uint32_t value = 0;
 		if (isV4()) {
@@ -247,7 +325,14 @@ public:
 		return value;
 	}
 
-	// A mapped address is printed as native IPv4. Brackets apply to a real v6 address only.
+	/**
+	 * The textual form. Empty when null.
+	 *
+	 * A mapped address is printed as native IPv4. Brackets apply to a real v6
+	 * address only: an IPv4 address has no colon, so it needs none.
+	 *
+	 * @param bracketEnclosed Bracket a real IPv6 address.
+	 */
 	std::string text(bool bracketEnclosed = false) const {
 		if (m_null) {
 			return {};
@@ -270,6 +355,10 @@ public:
 		return out;
 	}
 
+	/**
+	 * Writes an IPv4 socket address. Fails, and leaves @p out zeroed, unless
+	 * this is a v4 or v4-mapped address. The port is left at zero.
+	 */
 	bool toSockAddr(sockaddr_in &out) const {
 		std::memset(&out, 0, sizeof(out));
 		if (!isV4()) {
@@ -280,7 +369,11 @@ public:
 		return true;
 	}
 
-	// A v4 address is written as ::ffff:0:0/96. This is the form a dual-stack socket accepts.
+	/**
+	 * Writes an IPv6 socket address. A v4 address is written as `::ffff:0:0/96`,
+	 * the form a dual-stack socket accepts. Fails, and leaves @p out zeroed,
+	 * when null. The port is left at zero.
+	 */
 	bool toSockAddr(sockaddr_in6 &out) const {
 		std::memset(&out, 0, sizeof(out));
 		if (m_null) {
@@ -294,6 +387,10 @@ public:
 		return true;
 	}
 
+	/**
+	 * Writes a socket address of the matching family. A v4 address is written
+	 * as `AF_INET`. Fails, and leaves @p out zeroed, when null.
+	 */
 	bool toSockAddr(sockaddr_storage &out) const {
 		std::memset(&out, 0, sizeof(out));
 		if (isV4()) {
@@ -305,7 +402,15 @@ public:
 		return false;
 	}
 
-	// Prefix match on the 16-byte form, as Mumble uses for ban masks.
+	/**
+	 * Prefix match on the 16-byte form.
+	 *
+	 * A v4 /24 is 120 bits here, because the mapped prefix occupies the first
+	 * 96. False when either address is null. @p bits above 128 is clamped.
+	 *
+	 * @param other The address to compare against.
+	 * @param bits How many leading bits must match.
+	 */
 	bool match(const Address &other, unsigned int bits) const {
 		if (m_null || other.m_null) {
 			return false;
@@ -330,16 +435,25 @@ public:
 		return true;
 	}
 
+	/** Clears the address and the scope, and marks the address null. */
 	void reset() {
 		m_bytes.fill(0);
 		m_null = true;
 		m_scope = 0;
 	}
 
+	/**
+	 * True when both are null, or both hold the same bytes and scope.
+	 * A mapped address compares equal to the same native IPv4 address.
+	 */
 	friend bool operator==(const Address &lhs, const Address &rhs) {
 		return lhs.m_null == rhs.m_null && lhs.m_scope == rhs.m_scope && lhs.m_bytes == rhs.m_bytes;
 	}
 
+	/**
+	 * Orders by null, then bytes, then scope. A null address sorts first.
+	 * A mapped address orders with the same native IPv4 address.
+	 */
 	friend std::strong_ordering operator<=>(const Address &lhs, const Address &rhs) {
 		if (auto cmp = rhs.m_null <=> lhs.m_null; cmp != 0) {
 			return cmp;
@@ -351,11 +465,13 @@ public:
 	}
 
 private:
+	/** True when the first twelve bytes are the mapped prefix. */
 	bool isMappedPrefix() const {
 		return std::all_of(m_bytes.begin(), m_bytes.begin() + 10, [](std::uint8_t b) { return b == 0; }) && m_bytes[10] == 0xFF
 			   && m_bytes[11] == 0xFF;
 	}
 
+	/** Stores four bytes behind the mapped prefix and clears the null flag. */
 	void setV4(const std::uint8_t *bytes) {
 		m_bytes.fill(0);
 		m_bytes[10] = 0xFF;
@@ -370,6 +486,7 @@ private:
 };
 } // namespace ipxx
 
+/** Hashes the scope and the 16-byte form. Equal addresses hash equal. */
 template <> struct std::hash< ipxx::Address > {
 	std::size_t operator()(const ipxx::Address &address) const noexcept {
 		std::size_t value = address.scope();
