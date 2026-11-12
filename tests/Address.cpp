@@ -3,6 +3,7 @@
 #include "ipxx/Address.hpp"
 
 #include <cassert>
+#include <cstring>
 #include <unordered_set>
 
 int main() {
@@ -37,6 +38,15 @@ int main() {
 	assert(v6.text() == "2001:db8::1");
 	assert(v6.text(true) == "[2001:db8::1]");
 
+	// Two separate zero runs: only the longest may collapse, and the result must parse back.
+	for (const char *text : { "2001:db8:0:0:1:0:0:2", "fe80:0:0:1:0:0:0:1", "2001:0:1:0:0:0:0:1" }) {
+		const Address original(text);
+		const Address parsed(original.text());
+		assert(!original.isNull());
+		assert(parsed.isV6());
+		assert(parsed == original);
+	}
+
 	const Address scoped("fe80::1%12");
 	assert(scoped.scope() == 12);
 	assert(scoped.text() == "fe80::1%12");
@@ -67,6 +77,14 @@ int main() {
 	assert(Address("192.0.2.10").match(Address("192.0.2.0"), 120));
 	assert(!Address("192.0.3.1").match(Address("192.0.2.0"), 120));
 	assert(!Address().match(Address("192.0.2.10"), 128));
+
+	// A v4 /20 is 116 bits here: the last compared byte is only partly masked.
+	const Address net("10.16.0.0");
+	assert(net.match(Address("10.16.15.255"), 116));
+	assert(!net.match(Address("10.16.16.0"), 116));
+	assert(net.match(Address("::ffff:10.16.15.255"), 116));
+	assert(net.match(Address("10.16.99.99"), 112));
+	assert(!net.match(Address("10.17.0.0"), 112));
 
 	assert(Address("::ffff:127.0.0.1").isLoopback());
 	assert(Address("10.1.2.3").isPrivate());

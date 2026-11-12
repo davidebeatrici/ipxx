@@ -3,6 +3,8 @@
 #include "ipxx/Endpoint.hpp"
 
 #include <cassert>
+#include <cstddef>
+#include <functional>
 #include <unordered_set>
 
 int main() {
@@ -64,6 +66,39 @@ int main() {
 
 	assert(v4 < Endpoint(Address("192.0.2.10"), 64739));
 	assert(Endpoint(Address("192.0.2.10"), 1) < Endpoint(Address("192.0.2.11"), 1));
+
+	const Endpoint a1(Address("127.0.0.1"), 443);
+	const Endpoint a2(Address("127.0.0.1"), 443);
+	const Endpoint b(Address("127.0.0.1"), 64738);
+	const Endpoint c(Address("10.0.0.1"), 80);
+	assert(a1 == a2);
+	assert(a1 != b);
+	assert(a1 != c);
+	assert(b != c);
+
+	// Null first, then by address, then by port.
+	const Endpoint ordered[] = {
+		Endpoint(),
+		Endpoint(std::uint16_t{ 1 }),
+		Endpoint(std::uint16_t{ 999 }),
+		Endpoint(Address("0.0.0.1"), 0),
+		Endpoint(Address("0.0.0.2"), 0),
+		Endpoint(Address("0.0.0.2"), 1),
+		Endpoint(Address("80.0.0.1"), 0),
+		Endpoint(Address("80.0.0.1"), 100),
+		Endpoint(Address("80.0.0.1"), 64738),
+		Endpoint(Address("80.0.0.2"), 64738),
+		Endpoint(Address("255.255.255.255"), 0),
+		Endpoint(Address("255.255.255.255"), 65535),
+	};
+	for (std::size_t i = 1; i < std::size(ordered); ++i) {
+		assert(ordered[i - 1] < ordered[i]);
+	}
+
+	assert(std::hash< Endpoint >{}(a1) == std::hash< Endpoint >{}(a2));
+	assert(std::hash< Endpoint >{}(a1) != std::hash< Endpoint >{}(b));
+	assert(std::hash< Endpoint >{}(a1) != std::hash< Endpoint >{}(c));
+	assert(std::hash< Endpoint >{}(b) != std::hash< Endpoint >{}(c));
 
 	std::unordered_set< Endpoint > set;
 	set.insert(v4);
